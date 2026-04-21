@@ -1,0 +1,59 @@
+version: "3.9"
+
+services:
+
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: enterprise_pm_db
+    environment:
+      SA_PASSWORD: "${DB_PASSWORD:?DB_PASSWORD is required. Copy .env.example to .env and set a strong password.}"
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Express
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqldata:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P '${DB_PASSWORD}' -Q 'SELECT 1' -C || exit 1"]
+      interval: 15s
+      retries: 10
+      start_period: 30s
+
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: enterprise_pm_api
+    environment:
+      ConnectionStrings__DefaultConnection: "Server=db;Database=EnterpriseDb;User Id=sa;Password=${DB_PASSWORD};Encrypt=false;TrustServerCertificate=true;"
+      JwtSettings__SecretKey: "${JWT_SECRET_KEY:?JWT_SECRET_KEY is required. Set it in your .env file.}"
+      JwtSettings__Issuer: "ProjectManagementAPI"
+      JwtSettings__Audience: "ProjectManagementApp"
+      JwtSettings__ExpirationMinutes: "15"
+      JwtSettings__RefreshTokenExpireDays: "7"
+      Cors__AllowedOrigins__0: "http://localhost:3000"
+      ASPNETCORE_ENVIRONMENT: "Production"
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        REACT_APP_API_URL: "http://localhost:8080"
+    container_name: enterprise_pm_frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  sqldata:

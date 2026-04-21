@@ -1,0 +1,39 @@
+## ---- .NET / C# ----
+[Bb]in/
+[Oo]bj/
+out/
+publish/
+*.user
+*.suo
+.vs/
+TestResults/
+*.nupkg
+*.nuget.props
+*.nuget.targets
+*.pubxml
+*.pubxml.user
+migration-script.sql
+
+## ---- Node / React ----
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+.pnpm-debug.log*
+frontend/build/
+coverage/
+
+## ---- Environment & Secrets ----
+.env
+.env.*
+!.env.example
+appsettings.Development.json
+**/appsettings.local.json
+
+## ---- OS ----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+## ---- Logs ----
+*.log
+logs/
