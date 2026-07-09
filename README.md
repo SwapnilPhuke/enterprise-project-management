@@ -19,8 +19,10 @@ A full-stack, production-ready web application for managing enterprise projects 
 | **Pagination & Filtering** | Server-side paging, keyword search, status filter, and sort on all project lists |
 | **Stats & Dashboard** | Aggregated project stats cached in-memory; React dashboard with metric cards |
 | **File Attachments** | Upload, download, and delete files per project (PDF, DOCX, XLSX, images, ZIP) |
+| **Real-time Updates** | SignalR hub broadcasts project status changes live to subscribed clients |
 | **API Versioning** | All routes versioned under `/api/v1` via `Asp.Versioning.Mvc` |
 | **Rate Limiting** | 100 requests / minute per IP via `System.Threading.RateLimiting` |
+| **Security Headers** | X-Content-Type-Options, X-Frame-Options, CSP on every response |
 | **Structured Logging** | Serilog with console + rolling-file sinks; separate log file per day |
 | **AutoMapper** | Zero-boilerplate DTO mapping via `MappingProfile` |
 | **FluentValidation** | Declarative request validation with descriptive error messages |
@@ -28,6 +30,7 @@ A full-stack, production-ready web application for managing enterprise projects 
 | **Global Error Handling** | Consistent JSON error responses; never leaks internals in production |
 | **Docker Ready** | Single `docker-compose up` spins up API + frontend + SQL Server |
 | **CI/CD** | GitHub Actions pipeline — builds and tests both services on every push |
+| **Integration Tests** | WebApplicationFactory-based tests covering auth + project endpoints |
 
 ## 🛠️ Tech Stack
 
@@ -45,6 +48,8 @@ A full-stack, production-ready web application for managing enterprise projects 
 | Rate Limiting | System.Threading.RateLimiting — 100 req/min/IP |
 | Caching | `IMemoryCache` — stats cached 5 min, invalidated on writes |
 | File Storage | Local `wwwroot/uploads`; extension + 10 MB size validation |
+| Real-time | ASP.NET Core SignalR — project status hub |
+| Security | Security headers middleware (CSP, X-Frame-Options, HSTS) |
 | API Docs | Swashbuckle / Swagger (dev only) |
 | Architecture | Layered — Controller → Service → EF Core |
 
@@ -55,8 +60,56 @@ A full-stack, production-ready web application for managing enterprise projects 
 | Routing | React Router DOM v6 with protected routes |
 | State | Context API (`AuthProvider`) + `useState` / `useEffect` |
 | HTTP | Axios — 401 interceptor auto-refreshes tokens |
+| Real-time | `@microsoft/signalr` — live project status updates via `useProjectStatus` hook |
 | Tests | React Testing Library + Jest |
 | Build | Create React App |
+
+## 🏗️ Architecture
+
+```mermaid
+flowchart TD
+    Browser["React 18 Frontend"]
+    SignalR["SignalR Client\n(@microsoft/signalr)"]
+
+    subgraph API["ASP.NET Core 9 API"]
+        SEC["Security Headers Middleware"]
+        EX["Global Exception Handler"]
+        RL["Rate Limiter\n(100 req/min/IP)"]
+        VER["API Versioning\n(/api/v1)"]
+        FV["FluentValidation"]
+
+        subgraph CTRL["Controllers"]
+            AUTH_C["AuthController"]
+            PROJ_C["ProjectController"]
+            ADM_C["AdminController"]
+        end
+
+        subgraph SVC["Services"]
+            AUTH_S["AuthenticationService\n(BCrypt + JWT)"]
+            PROJ_S["ProjectService\n(IMemoryCache stats)"]
+            FILE_S["FileUploadService"]
+        end
+
+        HUB["ProjectStatusHub\n(SignalR)"]
+    end
+
+    subgraph DATA["Data Layer"]
+        EF["Entity Framework Core 9"]
+        DB["SQL Server"]
+    end
+
+    HEALTH["GET /health\n(DB check)"]
+
+    Browser -->|HTTPS + Bearer JWT| SEC
+    SignalR -->|WebSocket / SSE| HUB
+    SEC --> EX --> RL --> VER
+    VER --> CTRL
+    CTRL --> FV --> SVC
+    SVC --> EF --> DB
+    PROJ_C -->|status changed| HUB
+    HUB -->|ProjectStatusChanged| SignalR
+    API --> HEALTH
+```
 
 ## 📋 Prerequisites
 
@@ -193,7 +246,10 @@ enterprise-project-management/
 │   ├── Mappings/
 │   │   └── MappingProfile.cs               # AutoMapper profile
 │   ├── Middleware/
-│   │   └── GlobalExceptionHandlerMiddleware.cs
+│   │   ├── GlobalExceptionHandlerMiddleware.cs
+│   │   └── SecurityHeadersMiddleware.cs
+│   ├── Hubs/
+│   │   └── ProjectStatusHub.cs             # SignalR real-time status updates
 │   ├── Migrations/                         # EF Core migrations
 │   ├── Models/                             # Domain entities
 │   │   ├── Project.cs
@@ -213,7 +269,12 @@ enterprise-project-management/
 │   ├── Dockerfile
 │   ├── Program.cs
 │   ├── appsettings.json
-│   └── appsettings.Production.json
+│   ├── appsettings.Production.json
+│   └── tests/                              # WebApplicationFactory integration tests
+│       ├── ProjectManagement.Tests.csproj
+│       └── Integration/
+│           ├── AuthIntegrationTests.cs
+│           └── ProjectManagementWebApplicationFactory.cs
 ├── frontend/
 │   ├── public/
 │   ├── src/
@@ -223,10 +284,13 @@ enterprise-project-management/
 │   │   │   ├── Navbar.js                   # Top nav with role-aware links
 │   │   │   └── ProtectedRoute.js           # Route guard (auth + role)
 │   │   ├── pages/
-│   │   │   ├── DashboardPage.js            # Stats dashboard
+│   │   │   ├── DashboardPage.js            # Stats dashboard (+ SignalR live updates)
 │   │   │   ├── LoginPage.js
 │   │   │   ├── ProjectsPage.js             # CRUD + attachments UI
 │   │   │   └── RegisterPage.js
+│   │   ├── hooks/
+│   │   │   ├── useDashboard.js             # Fetches stats from API
+│   │   │   └── useProjectStatus.js         # SignalR connection + live status
 │   │   ├── App.js                          # React Router shell
 │   │   ├── App.test.js                     # Jest / RTL test suite
 │   │   ├── App.css
@@ -275,14 +339,19 @@ REACT_APP_API_URL=http://localhost:5000
 ## 🧪 Testing
 
 ```bash
-# Frontend unit + integration tests
+# Frontend unit + component tests (React Testing Library)
 cd frontend
 npm test -- --watchAll=false
 
-# Backend (add xUnit project to run)
-cd backend
-dotnet test
+# Backend integration tests (WebApplicationFactory — no SQL Server needed)
+cd backend/tests
+dotnet restore
+dotnet test -v normal
 ```
+
+**Coverage:**
+- Integration tests: auth register/login, protected project endpoints, health check
+- Frontend tests: `LoginPage` rendering + form submission, `AuthContext` state (see `App.test.js`)
 
 ## 🐳 Docker
 

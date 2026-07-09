@@ -1,9 +1,11 @@
 
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.SignalR;
 using System.Security.Claims;
 using Asp.Versioning;
 using ProjectManagement.Common;
+using ProjectManagement.Hubs;
 using ProjectManagement.Services;
 using ProjectManagement.DTOs;
 
@@ -17,11 +19,16 @@ public class ProjectController : ControllerBase
 {
     private readonly IProjectService            _service;
     private readonly ILogger<ProjectController> _logger;
+    private readonly IHubContext<ProjectStatusHub> _hub;
 
-    public ProjectController(IProjectService service, ILogger<ProjectController> logger)
+    public ProjectController(
+        IProjectService service,
+        ILogger<ProjectController> logger,
+        IHubContext<ProjectStatusHub> hub)
     {
         _service = service;
         _logger  = logger;
+        _hub     = hub;
     }
 
     private int GetCurrentUserId()
@@ -102,7 +109,20 @@ public class ProjectController : ControllerBase
 
         var userId = GetCurrentUserId();
         var result = await _service.UpdateAsync(id, dto, userId);
-        if (result.Success) _logger.LogInformation("User {UserId} updated project {ProjectId}", userId, id);
+        if (result.Success)
+        {
+            _logger.LogInformation("User {UserId} updated project {ProjectId}", userId, id);
+
+            // Broadcast real-time status update to all clients watching this project
+            await _hub.Clients
+                .Group(ProjectStatusHub.GetGroupName(id))
+                .SendAsync("ProjectStatusChanged", new
+                {
+                    projectId = id,
+                    status    = result.Data!.Status,
+                    updatedAt = result.Data.UpdatedAt
+                });
+        }
         return ToActionResult(result);
     }
 

@@ -9,6 +9,7 @@ using Serilog;
 using System.Text;
 using System.Threading.RateLimiting;
 using ProjectManagement.Data;
+using ProjectManagement.Hubs;
 using ProjectManagement.Mappings;
 using ProjectManagement.Repositories;
 using ProjectManagement.Services;
@@ -165,6 +166,9 @@ try
     builder.Services.AddScoped<IAuthenticationService, AuthenticationService>();
     builder.Services.AddScoped<IFileUploadService,     FileUploadService>();
 
+    // SignalR
+    builder.Services.AddSignalR();
+
     // Health Checks
     builder.Services.AddHealthChecks()
         .AddDbContextCheck<AppDbContext>("database");
@@ -180,7 +184,8 @@ try
         {
             policy.WithOrigins(allowedOrigins)
                   .AllowAnyMethod()
-                  .AllowAnyHeader();
+                  .AllowAnyHeader()
+                  .AllowCredentials();  // Required for SignalR WebSocket negotiation
         });
     });
 
@@ -188,6 +193,7 @@ try
     var app = builder.Build();
 
     app.UseGlobalExceptionHandler();
+    app.UseSecurityHeaders();
     app.UseSerilogRequestLogging();
 
     if (app.Environment.IsDevelopment())
@@ -204,6 +210,7 @@ try
     app.UseAuthorization();
     app.MapControllers();
     app.MapHealthChecks("/health");
+    app.MapHub<ProjectStatusHub>("/hubs/project-status");
 
     app.Run();
 }
@@ -215,3 +222,6 @@ finally
 {
     Log.CloseAndFlush();
 }
+
+// Required for WebApplicationFactory in integration tests
+public partial class Program { }

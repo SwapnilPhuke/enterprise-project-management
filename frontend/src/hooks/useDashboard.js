@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { projectsApi } from '../services/projectsApi';
 
 export function useDashboard() {
@@ -6,12 +6,15 @@ export function useDashboard() {
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');
 
-  useEffect(() => {
+  const fetchStats = useCallback(() => {
+    setLoading(true);
     projectsApi.getStats()
       .then(res => setStats(res.data))
       .catch(() => setError('Could not load stats. Make sure the API is running.'))
       .finally(() => setLoading(false));
   }, []);
 
-  return { stats, loading, error };
+  useEffect(() => { fetchStats(); }, [fetchStats]);
+
+  return { stats, loading, error, refresh: fetchStats };
 }

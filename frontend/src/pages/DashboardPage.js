@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useDashboard } from '../hooks/useDashboard';
+import { useProjectStatus } from '../hooks/useProjectStatus';
 import Navbar from '../components/Navbar';
 
 const STATUS_COLORS = {
@@ -13,8 +14,23 @@ const STATUS_COLORS = {
 };
 
 export default function DashboardPage() {
-  const { currentUser }       = useAuth();
-  const { stats, loading, error } = useDashboard();
+  const { currentUser, token } = useAuth();
+  const { stats, loading, error, refresh } = useDashboard();
+
+  // Live status notification from SignalR
+  const [liveAlert, setLiveAlert] = useState(null);
+
+  const onStatusChanged = useCallback((update) => {
+    setLiveAlert(`Project #${update.projectId} status updated to ${update.status}%.`);
+    // Refresh stats so dashboard numbers stay in sync
+    refresh?.();
+    // Auto-dismiss after 5 s
+    setTimeout(() => setLiveAlert(null), 5000);
+  }, [refresh]);
+
+  // Pass null for projectId to watch all activity — the hook skips if null
+  // In a real app you would pass the specific project the user is viewing
+  useProjectStatus(null, onStatusChanged, token);
 
   const cards = stats ? [
     { label: 'Total Projects',  value: stats.total,      color: '#667eea', icon: '📁' },
@@ -34,6 +50,12 @@ export default function DashboardPage() {
           <h1>Welcome back, {currentUser?.fullName || currentUser?.username || 'User'}</h1>
           <p>Here's an overview of your project portfolio.</p>
         </div>
+
+        {liveAlert && (
+          <div className="alert alert-info" role="status">
+            🔔 {liveAlert}
+          </div>
+        )}
 
         {error && <div className="alert alert-error">{error}</div>}
 
