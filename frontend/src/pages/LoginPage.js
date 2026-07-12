@@ -38,7 +38,7 @@ export default function LoginPage() {
         {error && <div className="alert alert-error">{error}</div>}
 
         <div className="auth-tabs">
-          <button className="auth-tab active">Sign In</button>
+          <span className="auth-tab active">Sign In</span>
           <Link to="/register"><button className="auth-tab">Register</button></Link>
         </div>
 
